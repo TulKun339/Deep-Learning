@@ -1,7 +1,7 @@
 # ---------- ① 读文件 ----------
 import torchaudio
 
-x, fs = torchaudio.load('a.wav')
+x, fs = torchaudio.load('e.wav')
 # x = 波形张量，形状 [通道数, 采样点数]。单声道就是 [1, 32000]
 # fs = 采样率，每秒采多少个点。fs=16000 时，32000 点 = 2 秒
 
@@ -33,5 +33,5 @@ im = ax.imshow(
 print(x.shape, fs, y.shape)
 
 fig.canvas.draw()          # 先渲染一次（某些版本不这样会存出空白图）
-fig.savefig('a.png')   # 存文件
+fig.savefig('e.png')   # 存文件
 plt.close()                # 关闭，释放内存
