@@ -1,0 +1,10 @@
+.vscode/
+__pycache__/
+*.pyc
+*.pth
+runs/
+logs/
+dataset/
+data/
+.DS_Store
+Thumbs.db
