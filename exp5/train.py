@@ -1,58 +1,88 @@
-# 讲义 P75 + P76：DataLoader + 自定义网络训练
-# 拆成了三个文件：dataset.py（数据）、model.py（网络）、train.py（训练）
+# 11/10 任务：63 句《千字文》整句识别
+# 用 Dataset + DataLoader 训练，网络只用 Conv2d + Linear，全程 CPU
+#
+# 用法：
+#   python train.py [录音目录]
+#   默认读取 exp5/千字文20261103（含 recording_mapping.txt）
+import copy
+import os
+import sys
+
 import torch
 from torch.utils.data import DataLoader, random_split
 
-from dataset import MyData
-from model import MyNet
+from dataset import FakeQianziwen, Qianziwen
+from model import QianziwenNet
 
+root = os.path.dirname(os.path.abspath(__file__))
+data_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(root, "千字文20261103")
+
+device = torch.device("cpu")
 torch.manual_seed(0)
 
-# ---------- 构造 Dataset 和 DataLoader ----------
-full_ds = MyData(n_per_class=200)   # 共 2000 条
+# ---------- 数据 ----------
+if os.path.isdir(data_dir):
+    dataset = Qianziwen(data_dir, cache_dir=os.path.join(root, "features_cache"))
+    classes = dataset.classes
+    epochs = 15
+    print(f"真实数据：{len(dataset)} 条，{len(classes)} 类")
+    print("开始缓存特征（首次较慢，之后直接读缓存）...")
+    print("新缓存：", dataset.build_cache(), "条")
+else:
+    dataset = FakeQianziwen(num_classes=63)
+    classes = [f"第{i}句" for i in range(63)]
+    epochs = 5
+    print(f"未找到 {data_dir}，改用假数据验证流程（准确率无意义）")
 
-# 80% 训练 / 20% 测试
-train_size = int(len(full_ds) * 0.8)
-test_size = len(full_ds) - train_size
-train_ds, test_ds = random_split(full_ds, [train_size, test_size])
+num_classes = len(classes)
+n_train = int(len(dataset) * 0.8)
+train_set, test_set = random_split(
+    dataset,
+    [n_train, len(dataset) - n_train],
+    generator=torch.Generator().manual_seed(0),
+)
+train_loader = DataLoader(train_set, batch_size=32, shuffle=True, num_workers=0)
+test_loader = DataLoader(test_set, batch_size=32, shuffle=False, num_workers=0)
+print(f"训练/测试：{len(train_set)} / {len(test_set)}")
 
-train_loader = DataLoader(train_ds, batch_size=32, shuffle=True, num_workers=0)
-test_loader = DataLoader(test_ds, batch_size=32, shuffle=False, num_workers=0)
-
-print("训练/测试：", train_size, "/", test_size)
-
-# ---------- 网络、损失、优化器 ----------
-model = MyNet(num_classes=10)
-print("网络参数量：", sum(p.numel() for p in model.parameters()))
+# ---------- 模型：Conv2d + Linear ----------
+model = QianziwenNet(num_classes=num_classes).to(device)
+print("参数量：", sum(p.numel() for p in model.parameters()))
 
 criterion = torch.nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, betas=(0.9, 0.99))
 
-# ---------- 训练循环 ----------
-epochs = 5
+# ---------- 训练 ----------
+best_acc = 0.0
+best_state = None
 for epoch in range(1, epochs + 1):
     model.train()
-    total_loss = 0.0
-    n = 0
-    for xb, yb in train_loader:        # DataLoader 自动分批 + 打乱
+    total_loss, n = 0.0, 0
+    for xb, yb in train_loader:
+        xb, yb = xb.to(device), yb.to(device)
         optimizer.zero_grad()
-        out = model(xb)
-        loss = criterion(out, yb)
+        loss = criterion(model(xb), yb)
         loss.backward()
         optimizer.step()
         total_loss += loss.item() * xb.size(0)
         n += xb.size(0)
-    train_loss = total_loss / n
 
-    # 测试
     model.eval()
-    correct = 0
-    total = 0
+    correct, total = 0, 0
     with torch.no_grad():
         for xb, yb in test_loader:
-            pred = model(xb).argmax(dim=1)
+            pred = model(xb.to(device)).argmax(dim=1).cpu()
             correct += (pred == yb).sum().item()
             total += yb.size(0)
     acc = correct / total
 
-    print(f"epoch {epoch:2d}  loss={train_loss:.4f}  test_acc={acc:.4f}")
+    if acc > best_acc:
+        best_acc = acc
+        best_state = copy.deepcopy(model.state_dict())
+
+    print(f"epoch {epoch:2d}  loss={total_loss / n:.4f}  test_acc={acc:.4f}")
+
+# ---------- 保存 ----------
+save_path = os.path.join(root, "best_model.pth")
+torch.save({"state_dict": best_state, "classes": classes}, save_path)
+print(f"最佳准确率 {best_acc:.4f}，模型已保存到 {save_path}")
