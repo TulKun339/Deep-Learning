@@ -2,16 +2,13 @@
 __pycache__/
 *.pyc
 *.pth
+*.pt
 runs/
 logs/
 dataset/
 data/
 .DS_Store
 Thumbs.db
-
-# 模型权重
-*.pt
-*.pth
 
 # 数据集
 exp5/千字文20261103/
